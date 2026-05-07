@@ -1,0 +1,484 @@
+#:kivy 2.1.0
+#:import MDBoxLayout kivymd.uix.boxlayout.MDBoxLayout
+#:import MDLabel kivymd.uix.label.MDLabel
+#:import MDIconButton kivymd.uix.button.MDIconButton
+#:import MDRaisedButton kivymd.uix.button.MDRaisedButton
+#:import MDTextField kivymd.uix.textfield.MDTextField
+#:import ButtonBehavior kivy.uix.behaviors.ButtonBehavior
+#:import Widget kivy.uix.widget.Widget
+#:import dp kivy.metrics.dp
+
+<DraggableCoin>:
+    # Fixed size for coin
+    size_hint: None, None
+    size: dp(66), dp(66)
+
+    # Default color (red); green coins override this
+    coin_color: 0.95, 0.2, 0.2, 1
+
+    canvas:
+        # Shadow
+        Color:
+            rgba: 0, 0, 0, 0.5
+        Ellipse:
+            size: self.width * 1.1, self.height * 1.1
+            pos: self.center_x - (self.width * 1.1) / 2, self.center_y - (self.height * 1.1) / 2 - dp(2)
+
+        # Coin
+        Color:
+            rgba: self.coin_color
+        Ellipse:
+            size: self.size
+            pos: self.pos
+
+    canvas.after:
+        # 6-point star in the opposite player color
+        Color:
+            rgba: self.star_color
+
+        # Upright triangle
+        Line:
+            width: dp(1.4)
+            close: True
+            points: self.center_x, self.center_y + self.height * 0.22, self.center_x - self.height * 0.18, self.center_y - self.height * 0.08, self.center_x + self.height * 0.18, self.center_y - self.height * 0.08
+
+        # Inverted triangle
+        Line:
+            width: dp(1.4)
+            close: True
+            points: self.center_x, self.center_y - self.height * 0.22, self.center_x - self.height * 0.18, self.center_y + self.height * 0.08, self.center_x + self.height * 0.18, self.center_y + self.height * 0.08
+
+
+<BoardCell>:
+    size_hint: 1, 1
+
+    canvas.before:
+        # Drop shadow behind the hole — sized to the smaller dimension so it
+        # never overflows into neighbouring cells on tall/narrow mobile screens
+        Color:
+            rgba: 0, 0, 0, 0.55
+        Ellipse:
+            size: min(self.width, self.height) + dp(6), min(self.width, self.height) + dp(6)
+            pos: self.x + (self.width - min(self.width, self.height) - dp(6)) / 2, self.y + (self.height - min(self.width, self.height) - dp(6)) / 2 - dp(2)
+
+        # Grey border / ring around the hole
+        Color:
+            rgba: 0.45, 0.48, 0.52, 1
+        Ellipse:
+            size: min(self.width, self.height) + dp(2), min(self.width, self.height) + dp(2)
+            pos: self.x + (self.width - min(self.width, self.height) - dp(2)) / 2, self.y + (self.height - min(self.width, self.height) - dp(2)) / 2
+
+    canvas.after:
+        # Actual piece / inner circle (empty or player color)
+        Color:
+            rgba: self.md_bg_color or (0, 0, 0, 0)
+        Ellipse:
+            size: min(self.width, self.height) - dp(8), min(self.width, self.height) - dp(8)
+            pos: self.x + (self.width - min(self.width, self.height) + dp(8)) / 2, self.y + (self.height - min(self.width, self.height) + dp(8)) / 2
+
+        # Star on occupied cells: red pieces get green stars, green pieces get red stars
+        Color:
+            rgba: ((0.1, 0.9, 0.2, 1) if self.player == 1 else (0.95, 0.2, 0.2, 1)) if self.player else (0, 0, 0, 0)
+
+        # Upright triangle
+        Line:
+            width: dp(1.4)
+            close: True
+            points: self.center_x, self.center_y + min(self.width, self.height) * 0.22, self.center_x - min(self.width, self.height) * 0.18, self.center_y - min(self.width, self.height) * 0.08, self.center_x + min(self.width, self.height) * 0.18, self.center_y - min(self.width, self.height) * 0.08
+
+        # Inverted triangle
+        Line:
+            width: dp(1.4)
+            close: True
+            points: self.center_x, self.center_y - min(self.width, self.height) * 0.22, self.center_x - min(self.width, self.height) * 0.18, self.center_y + min(self.width, self.height) * 0.08, self.center_x + min(self.width, self.height) * 0.18, self.center_y + min(self.width, self.height) * 0.08
+
+        # Winning highlight ring: green around red wins, red around green wins
+        Color:
+            rgba: ((0.3, 1, 0.3, 0.95) if self.player == 1 else (1, 1, 0.1, 0.95)) if self.is_winning else (0, 0, 0, 0)
+        Line:
+            width: dp(3)
+            circle: self.center_x, self.center_y, (min(self.width, self.height) - dp(2)) / 2
+
+        # Last-move indicator is driven by md_bg_color (orange/cyan coin color)
+        # — no separate canvas instruction needed
+
+
+GameScreen:
+    orientation: "horizontal"
+    spacing: 0
+    padding: "4dp", "4dp", "4dp", 0
+
+    canvas.before:
+        Color:
+            rgba: 0.8, 0.8, 0.85, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    # MAIN game area (title + board + play-again)
+    MDBoxLayout:
+        id: main_area
+        orientation: "vertical"
+        spacing: 0
+        padding: "4dp", "4dp", "4dp", 0
+        size_hint_x: 0.78
+        size_hint_y: 1
+
+        # Top bar: title + score + status
+        MDBoxLayout:
+            size_hint_y: None
+            height: dp(48)
+            spacing: "8dp"
+            padding: "4dp"
+
+            MDLabel:
+                text: "5R"
+                font_style: "H4"
+                bold: True
+                halign: "left"
+                theme_text_color: "Custom"
+                text_color: 0, 0, 0.5, 1
+                size_hint_x: None
+                width: dp(56)
+
+            MDLabel:
+                text: "{} {} - {} {}".format(root.ids.game_state.p1_name, root.ids.game_state.p1_score, root.ids.game_state.p2_name, root.ids.game_state.p2_score)
+                font_style: "Subtitle1"
+                bold: True
+                halign: "center"
+                theme_text_color: "Custom"
+                text_color: 0, 0, 0.5, 1
+
+            MDLabel:
+                text: root.ids.game_state.status_text
+                font_style: "Subtitle1"
+                bold: True
+                halign: "right"
+                theme_text_color: "Custom"
+                text_color: 0, 0, 0.5, 1
+
+        # Board area — square aspect ratio enforced by binding in Python
+        AnchorLayout:
+            id: board_anchor
+            size_hint_x: 1
+            size_hint_y: 1
+
+            canvas.before:
+                Color:
+                    rgba: 0.35, 0.35, 0.4, 1
+                RoundedRectangle:
+                    radius: [16, 16, 10, 10]
+                    pos: self.x + dp(4), self.y + dp(4)
+                    size: self.width - dp(8), self.height - dp(8)
+
+            GridLayout:
+                id: main_grid
+                cols: 7
+                rows: 6
+                spacing: "2dp"
+                padding: "8dp"
+                size_hint_x: 1
+                size_hint_y: 1
+
+                # ----- Row 0 -----
+                BoardCell:
+                    id: cell_0_0
+                    row: 0
+                    col: 0
+                BoardCell:
+                    id: cell_0_1
+                    row: 0
+                    col: 1
+                BoardCell:
+                    id: cell_0_2
+                    row: 0
+                    col: 2
+                BoardCell:
+                    id: cell_0_3
+                    row: 0
+                    col: 3
+                BoardCell:
+                    id: cell_0_4
+                    row: 0
+                    col: 4
+                BoardCell:
+                    id: cell_0_5
+                    row: 0
+                    col: 5
+                BoardCell:
+                    id: cell_0_6
+                    row: 0
+                    col: 6
+
+                # ----- Row 1 -----
+                BoardCell:
+                    id: cell_1_0
+                    row: 1
+                    col: 0
+                BoardCell:
+                    id: cell_1_1
+                    row: 1
+                    col: 1
+                BoardCell:
+                    id: cell_1_2
+                    row: 1
+                    col: 2
+                BoardCell:
+                    id: cell_1_3
+                    row: 1
+                    col: 3
+                BoardCell:
+                    id: cell_1_4
+                    row: 1
+                    col: 4
+                BoardCell:
+                    id: cell_1_5
+                    row: 1
+                    col: 5
+                BoardCell:
+                    id: cell_1_6
+                    row: 1
+                    col: 6
+
+                # ----- Row 2 -----
+                BoardCell:
+                    id: cell_2_0
+                    row: 2
+                    col: 0
+                BoardCell:
+                    id: cell_2_1
+                    row: 2
+                    col: 1
+                BoardCell:
+                    id: cell_2_2
+                    row: 2
+                    col: 2
+                BoardCell:
+                    id: cell_2_3
+                    row: 2
+                    col: 3
+                BoardCell:
+                    id: cell_2_4
+                    row: 2
+                    col: 4
+                BoardCell:
+                    id: cell_2_5
+                    row: 2
+                    col: 5
+                BoardCell:
+                    id: cell_2_6
+                    row: 2
+                    col: 6
+
+                # ----- Row 3 -----
+                BoardCell:
+                    id: cell_3_0
+                    row: 3
+                    col: 0
+                BoardCell:
+                    id: cell_3_1
+                    row: 3
+                    col: 1
+                BoardCell:
+                    id: cell_3_2
+                    row: 3
+                    col: 2
+                BoardCell:
+                    id: cell_3_3
+                    row: 3
+                    col: 3
+                BoardCell:
+                    id: cell_3_4
+                    row: 3
+                    col: 4
+                BoardCell:
+                    id: cell_3_5
+                    row: 3
+                    col: 5
+                BoardCell:
+                    id: cell_3_6
+                    row: 3
+                    col: 6
+
+                # ----- Row 4 -----
+                BoardCell:
+                    id: cell_4_0
+                    row: 4
+                    col: 0
+                BoardCell:
+                    id: cell_4_1
+                    row: 4
+                    col: 1
+                BoardCell:
+                    id: cell_4_2
+                    row: 4
+                    col: 2
+                BoardCell:
+                    id: cell_4_3
+                    row: 4
+                    col: 3
+                BoardCell:
+                    id: cell_4_4
+                    row: 4
+                    col: 4
+                BoardCell:
+                    id: cell_4_5
+                    row: 4
+                    col: 5
+                BoardCell:
+                    id: cell_4_6
+                    row: 4
+                    col: 6
+
+                # ----- Row 5 -----
+                BoardCell:
+                    id: cell_5_0
+                    row: 5
+                    col: 0
+                BoardCell:
+                    id: cell_5_1
+                    row: 5
+                    col: 1
+                BoardCell:
+                    id: cell_5_2
+                    row: 5
+                    col: 2
+                BoardCell:
+                    id: cell_5_3
+                    row: 5
+                    col: 3
+                BoardCell:
+                    id: cell_5_4
+                    row: 5
+                    col: 4
+                BoardCell:
+                    id: cell_5_5
+                    row: 5
+                    col: 5
+                BoardCell:
+                    id: cell_5_6
+                    row: 5
+                    col: 6
+
+        # "Play Again" button — collapses to height 0 when game is ongoing
+        MDRaisedButton:
+            text: "Play Again"
+            size_hint: None, None
+            width: dp(130)
+            height: dp(40) if root.ids.game_state.game_over else 0
+            pos_hint: {"center_x": 0.5}
+            opacity: 1 if root.ids.game_state.game_over else 0
+            disabled: not root.ids.game_state.game_over
+            on_release: root.play_again()
+
+        # GameState is a layout helper — collapse it so it takes no visual space
+        GameState:
+            id: game_state
+            size_hint: 1, None
+            height: 0
+
+    # SIDE panel — right column in landscape, bottom panel in portrait
+    MDBoxLayout:
+        id: side_panel
+        orientation: "vertical"
+        size_hint_x: 0.22
+        size_hint_y: 1
+        padding: "4dp", 0, "4dp", "4dp"
+        spacing: "2dp"
+
+        # Name field — hidden programmatically once a name is saved
+        MDTextField:
+            id: name_field
+            hint_text: "Your name"
+            text: root.ids.game_state.p2_name
+            mode: "fill"
+            fill_color: 0, 0, 0.45, 1
+            line_color_normal: 1, 1, 1, 1
+            line_color_focus: 1, 1, 1, 1
+            text_color: 1, 1, 1, 1
+            size_hint_x: 1
+            size_hint_y: None
+            height: dp(44)
+            on_text: root.ids.game_state.p2_name = self.text if self.text else "Player 2"
+
+        # Coins + leaderboard: horizontal in portrait, vertical in landscape (set via Python)
+        MDBoxLayout:
+            id: coins_leader_layout
+            orientation: "vertical"
+            size_hint_x: 1
+            size_hint_y: 1
+            spacing: "2dp"
+
+            # Two draggable coins with player labels
+            MDBoxLayout:
+                id: coins_row
+                orientation: "horizontal"
+                spacing: "6dp"
+                size_hint_x: 1
+                size_hint_y: None
+                height: dp(80)
+
+                MDBoxLayout:
+                    orientation: "vertical"
+                    spacing: "2dp"
+                    size_hint_x: None
+                    width: dp(62)
+
+                    MDLabel:
+                        text: root.ids.game_state.p1_name
+                        halign: "center"
+                        theme_text_color: "Custom"
+                        text_color: 0, 0, 0.5, 1
+                        font_style: "Caption"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(14)
+
+                    DraggableCoin:
+                        id: red_coin_1
+                        player: 1
+                        size_hint: None, None
+                        size: dp(50), dp(50)
+
+                MDBoxLayout:
+                    orientation: "vertical"
+                    spacing: "2dp"
+                    size_hint_x: None
+                    width: dp(62)
+
+                    MDLabel:
+                        text: root.ids.game_state.p2_name
+                        halign: "center"
+                        theme_text_color: "Custom"
+                        text_color: 0, 0, 0.5, 1
+                        font_style: "Caption"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(14)
+
+                    DraggableCoin:
+                        id: green_coin_1
+                        player: 2
+                        coin_color: 0.1, 0.9, 0.2, 1
+                        star_color: 0.95, 0.2, 0.2, 1
+                        size_hint: None, None
+                        size: dp(50), dp(50)
+
+            # Inline leaderboard
+            ScrollView:
+                size_hint_x: 1
+                size_hint_y: 1
+                do_scroll_x: False
+
+                MDLabel:
+                    id: leaderboard_label
+                    text: ""
+                    font_style: "Caption"
+                    theme_text_color: "Custom"
+                    text_color: 0, 0, 0.42, 1
+                    bold: False
+                    halign: "left"
+                    valign: "top"
+                    size_hint_y: None
+                    height: self.texture_size[1]
+                    text_size: self.width, None
